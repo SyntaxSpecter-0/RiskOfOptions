@@ -19,12 +19,16 @@ public class ModSettingsSlider : ModSettingsControl<float, SliderConfig>
         
     private SliderConfig.SliderTryParse? _tryParse;
 
+    internal override bool UsesLeftRight => true;
+
     protected override void Awake()
     {
         base.Awake();
             
         if (!slider)
             return;
+
+        SetLeftRightActions(() => StepSlider(-1), () => StepSlider(1));
 
         _tryParse = Config?.TryParseDelegate;
             
@@ -33,6 +37,12 @@ public class ModSettingsSlider : ModSettingsControl<float, SliderConfig>
         slider.onValueChanged.AddListener(OnSliderValueChanged);
         valueText.onEndEdit.AddListener(OnTextEdited);
         valueText.onSubmit.AddListener(OnTextEdited);
+    }
+
+    // Sliders have no step setting, so move 1% of the range (1 on the default 0-100 slider)
+    private void StepSlider(int direction)
+    {
+        slider.value = StepOnGrid(slider.value, (maxValue - minValue) / 100f, minValue, direction);
     }
 
     protected override void Disable()

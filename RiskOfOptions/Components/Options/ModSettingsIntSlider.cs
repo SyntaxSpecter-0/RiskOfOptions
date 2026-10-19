@@ -19,6 +19,8 @@ public class ModSettingsIntSlider : ModSettingsControl<int, IntSliderConfig>
 
     private IntSliderConfig.IntSliderTryParse? _tryParse;
 
+    internal override bool UsesLeftRight => true;
+
     protected override void Awake()
     {
         base.Awake();
@@ -31,6 +33,8 @@ public class ModSettingsIntSlider : ModSettingsControl<int, IntSliderConfig>
         slider.minValue = minValue;
         slider.maxValue = maxValue;
         slider.wholeNumbers = true;
+
+        SetLeftRightActions(() => slider.value -= 1, () => slider.value += 1);
             
         slider.onValueChanged.AddListener(OnSliderValueChanged);
         valueText.onEndEdit.AddListener(OnTextEdited);

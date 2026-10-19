@@ -22,6 +22,8 @@ public class ModSettingsStepSlider : ModSettingsControl<float, StepSliderConfig>
         
     private SliderConfig.SliderTryParse? _tryParse;
 
+    internal override bool UsesLeftRight => true;
+
     protected override void Awake()
     {
         base.Awake();
@@ -30,6 +32,9 @@ public class ModSettingsStepSlider : ModSettingsControl<float, StepSliderConfig>
             return;
             
         _tryParse = Config?.TryParseDelegate;
+
+        // The slider's value is the step index, so one press moves one step
+        SetLeftRightActions(() => slider.value -= 1, () => slider.value += 1);
             
         slider.onValueChanged.AddListener(OnSliderValueChanged);
         valueText.onEndEdit.AddListener(OnTextEdited);
