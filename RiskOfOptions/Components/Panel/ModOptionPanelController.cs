@@ -8,8 +8,10 @@ using RiskOfOptions.Containers;
 using RiskOfOptions.Options;
 using RiskOfOptions.Resources;
 using RoR2.UI;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Events;
 
 #pragma warning disable 618
 
@@ -36,7 +38,10 @@ namespace RiskOfOptions.Components.Panel
         private GameObject _colorButtonPrefab;
 
         private MPEventSystem _mpEventSystem;
+        private Selectable _firstOption;
         private MPButton _revertButton;
+        private HGGamepadInputEvent[] _vanillaBackEvents = Array.Empty<HGGamepadInputEvent>();
+        private int _backFrame = -1;
         private SimpleDialogBox _dialogBox;
 
         //private GameObject _leftGlyph;
@@ -59,6 +64,8 @@ namespace RiskOfOptions.Components.Panel
         public void Start()
         {
             CreatePrefabs();
+            AddCategoryTriggers();
+            AddBackToModList();
             CreateModListButtons();
             AddPanelsToSettings();
             CheckIfRestartNeeded();
@@ -96,6 +103,93 @@ namespace RiskOfOptions.Components.Panel
             _choicePrefab.SetActive(false);
             _genericButtonPrefab.SetActive(false);
             _colorButtonPrefab.SetActive(false);
+        }
+
+        private HGHeaderNavigationController CategoryNavigation =>
+            _panel.CategoryHeader.transform.Find("Scroll View").Find("Viewport").Find("Categories (JUICED)")
+            .GetComponent<HGHeaderNavigationController>();
+
+        private void AddCategoryTriggers()
+        {
+            var previousCategory = _panel.CategoryHeader.AddComponent<HGGamepadInputEvent>();
+            previousCategory.actionName = "UIPageLeft";
+            previousCategory.enabledObjectsIfActive = Array.Empty<GameObject>();
+            previousCategory.actionEvent = new UnityEvent();
+            previousCategory.actionEvent.AddListener(OnPreviousCategory);
+
+            var nextCategory = _panel.CategoryHeader.AddComponent<HGGamepadInputEvent>();
+            nextCategory.actionName = "UIPageRight";
+            nextCategory.enabledObjectsIfActive = Array.Empty<GameObject>();
+            nextCategory.actionEvent = new UnityEvent();
+            nextCategory.actionEvent.AddListener(OnNextCategory);
+        }
+
+        private void OnPreviousCategory()
+        {
+            MoveCategory(-1);
+        }
+
+        private void OnNextCategory()
+        {
+            MoveCategory(1);
+        }
+
+        private void MoveCategory(int step)
+        {
+            var navigation = CategoryNavigation;
+            int index = navigation.currentHeaderIndex + step;
+            if (index < 0 || index >= navigation.headers.Count)
+                return;
+
+            navigation.headers[index].headerButton.InvokeClick();
+            if (_firstOption)
+                _mpEventSystem.SetSelectedGameObject(_firstOption.gameObject);
+            _panel.CategoryHeader.GetComponentInChildren<CategoryScrollRect>().SetPage(index / 4);
+        }
+
+        // B normally leaves the settings panel; inside a mod's options it goes back to the mod list instead
+        private void AddBackToModList()
+        {
+            _vanillaBackEvents = GetComponents<HGGamepadInputEvent>().Where(backEvent => backEvent.actionName == "UICancel").ToArray();
+
+            var back = _panel.ModOptionsPanel.AddComponent<HGGamepadInputEvent>();
+            back.actionName = "UICancel";
+            back.enabledObjectsIfActive = Array.Empty<GameObject>();
+            back.actionEvent = new UnityEvent();
+            back.actionEvent.AddListener(OnBack);
+        }
+
+        private void OnBack()
+        {
+            var selected = _mpEventSystem.currentSelectedGameObject;
+
+            // Text and number fields use B to stop editing themselves
+            if (!IsInModOptions(selected) || selected.GetComponent<TMP_InputField>() || ModSetting.editEndedFrame == Time.frameCount)
+                return;
+
+            _backFrame = Time.frameCount;
+
+            var dropdown = selected.GetComponentInParent<RooDropdown>();
+            if (dropdown)
+            {
+                dropdown.OnCancel(null);
+                return;
+            }
+
+            var modButton = CurrentModButton();
+            if (modButton)
+                _mpEventSystem.SetSelectedGameObject(modButton.gameObject);
+        }
+
+        private bool IsInModOptions(GameObject selected)
+        {
+            return selected && (selected.transform.IsChildOf(_panel.ModOptionsPanel.transform) || selected.transform.IsChildOf(_panel.CategoryHeader.transform));
+        }
+
+        private MPButton CurrentModButton()
+        {
+            var modNavigation = _panel.ModListPanel.GetComponent<HGHeaderNavigationController>();
+            return modNavigation.currentHeaderIndex >= 0 ? modNavigation.headers[modNavigation.currentHeaderIndex].headerButton : null;
         }
 
         private void AddPanelsToSettings()
@@ -137,6 +231,9 @@ namespace RiskOfOptions.Components.Panel
         {
             HGHeaderNavigationController navigationController = _panel.ModListPanel.GetComponent<HGHeaderNavigationController>();
 
+            // The header controller greys out the open mod like a tab, which makes gamepad navigation skip it
+            navigationController.makeSelectedHeaderButtonNoninteractable = false;
+
             List<HGHeaderNavigationController.Header> headers = new List<HGHeaderNavigationController.Header>();
 
             //_leftGlyph.transform.SetParent(modListLayout);
@@ -153,6 +250,10 @@ namespace RiskOfOptions.Components.Panel
                 ShowModsDialogBox();
             }
 
+            // On a gamepad this holds the list at a target position, which only ScrollToShowMe moves
+            var modListScrollHelper = _panel.ModListPanel.transform.Find("Scroll View").GetComponent<HGScrollRectHelper>();
+
+            bool isFirstMod = true;
             foreach (var collection in ModSettingsManager.OptionCollection)
             {
                 GameObject newModButton = Instantiate(_panel.ModListButton, modListVerticalLayout);
@@ -165,6 +266,11 @@ namespace RiskOfOptions.Components.Panel
                 modListButton.modGuid = collection.ModGuid;
                 modListButton.navigationController = navigationController;
                 modListButton.descriptionLabel = _panel.ModDescriptionPanel.GetComponentInChildren<HGTextMeshProUGUI>();
+                modListButton.defaultFallbackButton = isFirstMod;
+                isFirstMod = false;
+
+                if (modListScrollHelper)
+                    modListButton.onSelect.AddListener(() => modListScrollHelper.ScrollToShowMe(modListButton));
 
                 // RectTransform modIconRectTransform = newModButton.transform.Find("ModIcon").gameObject.GetComponent<RectTransform>();
                 //
@@ -339,6 +445,7 @@ namespace RiskOfOptions.Components.Panel
 
         internal void LoadOptionListFromCategory(string modGuid, int categoryIndex)
         {
+            _firstOption = null;
             UnloadExistingOptionButtons();
 
             _panel.ModOptionsDescriptionPanel.GetComponentInChildren<HGTextMeshProUGUI>().SetText("");
@@ -348,6 +455,8 @@ namespace RiskOfOptions.Components.Panel
             Transform verticalLayoutTransform = _panel.ModOptionsPanel.transform.Find("Scroll View").Find("Viewport").Find("VerticalLayout");
 
             Selectable lastSelectable = null;
+            var optionsScrollHelper = _panel.ModOptionsPanel.transform.Find("Scroll View").GetComponent<HGScrollRectHelper>();
+            var modButton = CurrentModButton();
 
             _modSettings = new ModSetting[category.OptionCount];
 
@@ -391,8 +500,17 @@ namespace RiskOfOptions.Components.Panel
 
                 if (selectable)
                 {
+                    if (!_firstOption)
+                        _firstOption = selectable;
+
                     var selectableNavigation = selectable.navigation;
                     selectableNavigation.mode = Navigation.Mode.Explicit;
+
+                    if (!_modSettings[i].UsesLeftRight)
+                        selectableNavigation.selectOnLeft = modButton;
+
+                    if (optionsScrollHelper && selectable is MPButton optionButton)
+                        optionButton.onSelect.AddListener(() => optionsScrollHelper.ScrollToShowMe(optionButton));
                     
                     if (i == 0 || i > category.OptionCount)
                     {
@@ -425,6 +543,13 @@ namespace RiskOfOptions.Components.Panel
 
                 button.SetActive(true);
             }
+            // The list keeps its old scroll position otherwise, so a new category can open scrolled to the bottom
+            var optionsScrollRect = _panel.ModOptionsPanel.transform.Find("Scroll View").GetComponent<ScrollRect>();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(optionsScrollRect.content);
+            optionsScrollRect.verticalNormalizedPosition = 1f;
+
+            if (optionsScrollHelper && _firstOption is MPButton firstButton)
+                optionsScrollHelper.ScrollToShowMe(firstButton);
         }
 
         internal void AddRestartRequired(string settingToken)
@@ -654,6 +779,12 @@ namespace RiskOfOptions.Components.Panel
 
         public void Update()
         {
+            // Vanilla back would close the whole panel, so it only runs while the mod list (or nothing) is selected.
+            var selected = _mpEventSystem ? _mpEventSystem.currentSelectedGameObject : null;
+            bool vanillaBackAllowed = !IsInModOptions(selected) && Time.frameCount > _backFrame;
+            foreach (var backEvent in _vanillaBackEvents)
+                backEvent.enabled = vanillaBackAllowed;
+
             bool interactable = false;
             foreach (var modSetting in _modSettings)
             {
