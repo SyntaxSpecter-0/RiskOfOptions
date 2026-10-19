@@ -6,6 +6,17 @@ namespace RiskOfOptions.Components.Options;
 
 public class ModSettingsIntField : ModSettingsNumericField<int>
 {
+    internal override bool UsesLeftRight => true;
+
+    protected override void Awake()
+    {
+        base.Awake();
+
+        SetLeftRightActions(() => Step(-1), () => Step(1));
+    }
+
+    private void Step(int delta) => SubmitValue(Clamp(GetCurrentValue() + delta));
+
     protected override int Clamp(int value) => Mathf.Clamp(value, min, max);
 
     protected override bool TryParse(string text, NumberStyles styles, IFormatProvider provider, out int num) =>

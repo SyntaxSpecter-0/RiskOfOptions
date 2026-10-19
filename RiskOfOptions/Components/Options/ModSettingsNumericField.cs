@@ -4,6 +4,7 @@ using RiskOfOptions.OptionConfigs;
 using RiskOfOptions.Options;
 using RoR2.UI;
 using TMPro;
+using UnityEngine;
 
 namespace RiskOfOptions.Components.Options;
 
@@ -17,6 +18,10 @@ public abstract class ModSettingsNumericField<TNumeric> : ModSettingsControl<TNu
     
     protected NumericFieldConfig<TNumeric>.NumericFieldTryParse? _numericFieldTryParse;
 
+    private MPEventSystemLocator _eventSystemLocator;
+    private int _editStartFrame = -1;
+    private int _editEndFrame = -1;
+
     protected override void Awake()
     {
         base.Awake();
@@ -25,6 +30,54 @@ public abstract class ModSettingsNumericField<TNumeric> : ModSettingsControl<TNu
         
         valueText.onEndEdit.AddListener(OnTextEdited);
         valueText.onSubmit.AddListener(OnTextEdited);
+
+        _eventSystemLocator = GetComponent<MPEventSystemLocator>();
+        GetComponent<HGButton>().onClick.AddListener(StartEditing);
+    }
+
+    private void Update()
+    {
+        var eventSystem = _eventSystemLocator.eventSystem;
+
+        if (!eventSystem || eventSystem.currentSelectedGameObject != valueText.gameObject)
+            return;
+
+        if (valueText.isFocused)
+        {
+            // A focused text box swallows menu input, so read the confirm and back buttons directly
+            var player = eventSystem.player;
+            if (Time.frameCount > _editStartFrame && (player.GetButtonDown(RewiredConsts.Action.UISubmit) || player.GetButtonDown(RewiredConsts.Action.UICancel)))
+                StopEditing();
+
+            return;
+        }
+
+        // Editing ended some other way (e.g. Enter), so give the gamepad its place in the list back
+        if (eventSystem.currentInputSource == MPEventSystem.InputSource.Gamepad && Time.frameCount > _editStartFrame + 1)
+            eventSystem.SetSelectedGameObject(gameObject);
+    }
+
+    private void StartEditing()
+    {
+        var eventSystem = _eventSystemLocator.eventSystem;
+
+        // The A press that confirmed an edit can reach the row in the same frame, which would reopen it
+        if (!eventSystem || eventSystem.currentInputSource != MPEventSystem.InputSource.Gamepad || Time.frameCount <= _editEndFrame + 1)
+            return;
+
+        _editStartFrame = Time.frameCount;
+        eventSystem.SetSelectedGameObject(valueText.gameObject);
+        valueText.ActivateInputField();
+    }
+
+    private void StopEditing()
+    {
+        _editEndFrame = Time.frameCount;
+        editEndedFrame = Time.frameCount;
+
+        // Deactivating raises onEndEdit, which saves the value through OnTextEdited
+        valueText.DeactivateInputField();
+        _eventSystemLocator.eventSystem.SetSelectedGameObject(gameObject);
     }
 
     protected override void Disable()
