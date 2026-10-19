@@ -22,6 +22,9 @@ namespace RiskOfOptions.Components.Options
         private string _previewToken;
         private bool _leftShift;
         private bool _rightShift;
+        private int _openedFrame;
+
+        private MPEventSystem EventSystem => GetComponent<MPEventSystemLocator>().eventSystem;
 
         protected override void Awake()
         {
@@ -49,6 +52,7 @@ namespace RiskOfOptions.Components.Options
             button.onClick.RemoveAllListeners();
             button.onClick.AddListener(AttemptShow);
             button.disablePointerClick = false;
+            GetComponent<HGButton>().onClick.AddListener(AttemptShow);
 
             if (submitOn.HasFlag(InputFieldConfig.SubmitEnum.OnChar))
                 inputField.onValueChanged.AddListener(SubmitChar);
@@ -79,6 +83,20 @@ namespace RiskOfOptions.Components.Options
                 if (submitOn.HasFlag(InputFieldConfig.SubmitEnum.OnSubmit))
                     SubmitText(inputField.text);
             }
+
+            bool gamepadInput = overlay && overlay.activeSelf && Time.frameCount > _openedFrame;
+            bool submitGamepad = gamepadInput && EventSystem.player.GetButtonDown(RewiredConsts.Action.UISubmit);
+            if (!_exitQueued && submitGamepad)
+            {
+                _exitQueued = true;
+
+                if (submitOn.HasFlag(InputFieldConfig.SubmitEnum.OnSubmit))
+                    SubmitText(inputField.text);
+            }
+
+            // B closes the editor like Esc does
+            if (gamepadInput && EventSystem.player.GetButtonDown(RewiredConsts.Action.UICancel))
+                _exitQueued = true;
 
             if (_exitQueued)
             {
@@ -194,10 +212,23 @@ namespace RiskOfOptions.Components.Options
 
             canvas.overrideSorting = true;
             canvas.sortingOrder = 30001;
+
+            _openedFrame = Time.frameCount;
+            if (EventSystem.currentInputSource == MPEventSystem.InputSource.Gamepad)
+            {
+                EventSystem.SetSelectedGameObject(inputField.gameObject);
+                inputField.ActivateInputField();
+            }
         }
 
         private void HideInputField()
         {
+            editEndedFrame = Time.frameCount;
+
+            var selected = EventSystem.currentSelectedGameObject;
+            if (selected && selected.transform.IsChildOf(overlay.transform))
+                EventSystem.SetSelectedGameObject(gameObject);
+
             overlay.SetActive(false);
         }
         
