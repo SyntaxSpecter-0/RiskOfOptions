@@ -14,6 +14,7 @@ namespace RiskOfOptions.Components.Options
 
             base.Awake();
 
+            GetComponent<HGButton>().onClick.AddListener(() => dropdown.OnSubmit(null));
             dropdown.OnValueChanged.AddListener(OnChoiceChanged);
 
             nameLabel.token = nameToken;
