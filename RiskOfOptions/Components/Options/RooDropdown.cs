@@ -281,10 +281,17 @@ namespace RiskOfOptions.Components.Options
 
             _buttons[_currentIndex].GetComponentInChildren<HGButton>().colors = _selectedColors;
 
+            if (EventSystem.currentInputSource == MPEventSystem.InputSource.Gamepad)
+                EventSystem.SetSelectedGameObject(_buttons[_currentIndex]);
+
         }
 
         private void Hide()
         {
+            var selected = EventSystem.currentSelectedGameObject;
+            if (selected && selected.transform.IsChildOf(template.transform))
+                EventSystem.SetSelectedGameObject(GetComponentInParent<HGButton>().gameObject);
+
             template.SetActive(false);
         }
 
@@ -297,6 +304,9 @@ namespace RiskOfOptions.Components.Options
             }
             
             _buttons = new GameObject[choices.Length];
+
+            // The list is a copy of a vanilla settings page, whose scroll helper only moves when told to
+            var scrollHelper = template.GetComponentInChildren<HGScrollRectHelper>(true);
             
             for (int i = 0; i < choices.Length; i++)
             {
@@ -317,6 +327,9 @@ namespace RiskOfOptions.Components.Options
                 {
                     SubmitChoice(index);
                 });
+
+                if (scrollHelper)
+                    hgButton.onSelect.AddListener(() => scrollHelper.ScrollToShowMe(hgButton));
 
                 _buttons[i] = button;
             }
